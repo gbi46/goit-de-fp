@@ -2,7 +2,7 @@
 .venv/
 __pycache__/
 *.py[cod]
-*.jar
+jars/*.jar
 data/
 logs/
 .idea/
