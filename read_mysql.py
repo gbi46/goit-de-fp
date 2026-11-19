@@ -1,6 +1,7 @@
 import os
 
 from dotenv import load_dotenv
+from pyspark.sql import functions as F
 from pyspark.sql import SparkSession
 
 
@@ -17,7 +18,7 @@ required_vars = [
 missing_vars = [name for name in required_vars if not os.getenv(name)]
 if missing_vars:
     raise RuntimeError(
-        f"Не задані змінні середовища: {', '.join(missing_vars)}"
+        f"environments variables were not set: {', '.join(missing_vars)}"
     )
 
 jdbc_jar = os.getenv(
@@ -42,6 +43,7 @@ try:
         "?useSSL=false&allowPublicKeyRetrieval=true"
     )
 
+    # read athlete data from MySQL
     athlete_bio = (
         spark.read
         .format("jdbc")
@@ -53,8 +55,36 @@ try:
         .load()
     )
 
+    # transform height and weight to numbers and filtering not correct values
+    athlete_bio = (
+        athlete_bio
+        .withColumn("height", F.expr("try_cast(height AS DOUBLE)"))
+        .withColumn("weight", F.expr("try_cast(weight AS DOUBLE)"))
+        .filter(
+            F.col("height").isNotNull()
+            & F.col("weight").isNotNull()
+        )
+    )
+
+    print("athlete_bio scheme after cleaned:")
     athlete_bio.printSchema()
     athlete_bio.show(10, truncate=False)
+
+    # read competition results from mysql
+    athlete_event_results = (
+    spark.read
+        .format("jdbc")
+        .option("url", jdbc_url)
+        .option("dbtable", "athlete_event_results")
+        .option("user", os.environ["MYSQL_USER"])
+        .option("password", os.environ["MYSQL_PASSWORD"])
+        .option("driver", "com.mysql.cj.jdbc.Driver")
+        .load()
+)
+
+    print("scheme athlete_event_results:")
+    athlete_event_results.printSchema()
+    athlete_event_results.show(10, truncate=False)
 
 finally:
     spark.stop()
