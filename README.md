@@ -1,39 +1,67 @@
-# Spark + MySQL JDBC
+# Data Engineering Final Project
 
-A small project for building a Docker image with PySpark, Java, and the MySQL JDBC driver.
+This repository contains the current implementation for the GoIT Data Engineering final project. It uses PySpark in Docker and currently includes a MySQL reader and the first batch data lake step, Landing to Bronze.
 
-## Current status
+## Current implementation
 
-- `Dockerfile` installs Java 17, the dependencies listed in `requirements.txt`, and MySQL Connector/J 8.0.32.
-- The JDBC driver is stored at `/opt/jdbc/mysql-connector-j-8.0.32.jar`.
-- `MYSQL_JDBC_JAR` points to the driver file.
-- The script does not currently read data from MySQL or test the connection.
-- The Docker image does not run the script automatically.
+- `read_mysql.py` reads `athlete_bio` and `athlete_event_results` from MySQL. It casts `height` and `weight` to numbers, filters invalid values from `athlete_bio`, and prints sample rows.
+- `landing_to_bronze.py` downloads `athlete_bio.csv` and `athlete_event_results.csv` from `SOURCE_URL`, saves the original CSV files under `data/landing/`, then writes Parquet datasets under `data/bronze/`.
+- `run.sh` builds the Docker image and runs one of the supported scripts.
+- `Dockerfile` installs Java 17, the Python dependencies, and MySQL Connector/J 8.0.32.
 
-## Prerequisites
+## Requirements
 
-Docker is required. Internet access is needed while building the image because the Dockerfile downloads dependencies and the JDBC driver.
+- Docker
+- Internet access to build the image and download source CSV files
+- MySQL credentials for `read_mysql.py`
 
-## Build the image
+## Configuration
 
-Run this from the project root:
+Copy `.env.example` to `.env` and fill in the required values:
 
-```sh
-./run.sh
+```env
+MYSQL_HOST=your-mysql-host
+MYSQL_PORT=3306
+MYSQL_DATABASE=olympic_dataset
+MYSQL_USER=your-mysql-user
+MYSQL_PASSWORD=your-mysql-password
+SOURCE_URL=your-csv-source-base-url
 ```
 
-The script builds the `spark-mysql-driver:latest` image. To build it manually:
+Keep `.env` private. It is excluded from Git by `.gitignore`.
+
+`SOURCE_URL` is the base URL for the CSV files. The script appends the CSV filenames to this value. It must be set to run `landing_to_bronze.py`.
+
+## Run a script
+
+Run commands from the repository directory (`goit-de-fp`):
 
 ```sh
-docker build -t spark-mysql-driver:latest .
+./run.sh landing_to_bronze
+./run.sh read_mysql
 ```
 
-To confirm that the image was created:
+`run.sh` builds or reuses the `spark-mysql-driver:latest` image, then runs the selected script in a temporary container. For `landing_to_bronze`, the local `data/` directory is mounted into the container so downloaded CSV and Parquet output persist on your machine. `read_mysql` uses the MySQL values from `.env`.
 
-```sh
-docker image inspect spark-mysql-driver:latest
+If no supported script name is provided, `run.sh` prints usage instructions. Supported names are `landing_to_bronze` and `read_mysql`.
+
+## Data layout
+
+After a successful Landing to Bronze run, the data directory will look like this:
+
+```text
+data/
+├── landing/
+│   ├── athlete_bio.csv
+│   └── athlete_event_results.csv
+└── bronze/
+    ├── athlete_bio/
+    │   ├── part-....parquet
+    │   └── _SUCCESS
+    └── athlete_event_results/
+        ├── part-....parquet
+        └── _SUCCESS
 ```
 
-## MySQL configuration
+Spark writes each Parquet dataset as a directory containing one or more data parts and metadata files; it is not a single `.parquet` file. The `data/` directory is excluded from Git.
 
-`.env.example` provides a template for the connection settings. Copy it to `.env` and set `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, and `MYSQL_PASSWORD`.
