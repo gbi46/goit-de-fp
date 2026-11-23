@@ -39,11 +39,12 @@ Run commands from the repository directory (`goit-de-fp`):
 ```sh
 ./run.sh landing_to_bronze
 ./run.sh read_mysql
+./run.sh print_json
 ```
 
 `run.sh` builds or reuses the `spark-mysql-driver:latest` image, then runs the selected script in a temporary container. For `landing_to_bronze`, the local `data/` directory is mounted into the container so downloaded CSV and Parquet output persist on your machine. `read_mysql` uses the MySQL values from `.env`.
 
-If no supported script name is provided, `run.sh` prints usage instructions. Supported names are `landing_to_bronze` and `read_mysql`.
+`print_json` uses the MySQL settings in `.env` to print a single `athlete_event_results` record as JSON. For Python scripts in the repository root, pass the filename with or without `.py`.
 
 ## Data layout
 
