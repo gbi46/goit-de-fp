@@ -46,6 +46,26 @@ Run commands from the repository directory (`goit-de-fp`):
 
 `print_json` uses the MySQL settings in `.env` to print a single `athlete_event_results` record as JSON. For Python scripts in the repository root, pass the filename with or without `.py`.
 
+## Create Kafka topics
+
+The command looks for `kafka/bin/kafka-topics.sh` and then searches `PATH`.
+If neither has the CLI, Docker runs it from the official `apache/kafka:4.1.2`
+image. In that case Docker provides Java and downloads the image on first use.
+
+Set `KAFKA_INPUT_TOPIC` and `KAFKA_OUTPUT_TOPIC` in `.env` using your topic
+names from the shared cluster. Use unquoted `KEY=value` lines.
+
+From the repository directory, run:
+
+```sh
+./run.sh create_topics
+```
+
+The command uses PLAIN SASL credentials from `.kcat-goit.conf` and deletes
+the temporary Java client configuration when it exits. It uses the broker
+address from `.kcat-goit.conf` unless `KAFKA_BOOTSTRAP_SERVERS` is set in
+`.env`. Existing topics are skipped.
+
 ## Data layout
 
 After a successful Landing to Bronze run, the data directory will look like this:

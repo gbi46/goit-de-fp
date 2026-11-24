@@ -1,5 +1,6 @@
 .env
 .kcat-goit.conf
+/kafka/
 .venv/
 __pycache__/
 *.py[cod]
