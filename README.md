@@ -1,11 +1,12 @@
 # Data Engineering Final Project
 
-This repository contains the current implementation for the GoIT Data Engineering final project. It uses PySpark in Docker and currently includes a MySQL reader and the first batch data lake step, Landing to Bronze.
+This repository contains the current implementation for the GoIT Data Engineering final project. It uses PySpark in Docker and includes a MySQL reader and batch data lake steps through Bronze to Silver.
 
 ## Current implementation
 
 - `read_mysql.py` reads `athlete_bio` and `athlete_event_results` from MySQL. It casts `height` and `weight` to numbers, filters invalid values from `athlete_bio`, and prints sample rows.
 - `landing_to_bronze.py` downloads `athlete_bio.csv` and `athlete_event_results.csv` from `SOURCE_URL`, saves the original CSV files under `data/landing/`, then writes Parquet datasets under `data/bronze/`.
+- `bronze_to_silver.py` cleans text columns, removes duplicate rows, and writes Parquet datasets under `data/silver/`.
 - `run.sh` builds the Docker image and runs one of the supported scripts.
 - `Dockerfile` installs Java 17, the Python dependencies, and MySQL Connector/J 8.0.32.
 
@@ -38,6 +39,7 @@ Run commands from the repository directory (`goit-de-fp`):
 
 ```sh
 ./run.sh landing_to_bronze
+./run.sh bronze_to_silver
 ./run.sh read_mysql
 ./run.sh print_json
 ```
