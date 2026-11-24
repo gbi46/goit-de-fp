@@ -1,12 +1,14 @@
 # Data Engineering Final Project
 
-This repository contains the current implementation for the GoIT Data Engineering final project. It uses PySpark in Docker and includes a MySQL reader and batch data lake steps through Bronze to Silver.
+This repository contains the GoIT Data Engineering final project implementation. It uses PySpark for the batch data lake and includes a MySQL reader for the streaming task.
 
 ## Current implementation
 
 - `read_mysql.py` reads `athlete_bio` and `athlete_event_results` from MySQL. It casts `height` and `weight` to numbers, filters invalid values from `athlete_bio`, and prints sample rows.
 - `landing_to_bronze.py` downloads `athlete_bio.csv` and `athlete_event_results.csv` from `SOURCE_URL`, saves the original CSV files under `data/landing/`, then writes Parquet datasets under `data/bronze/`.
 - `bronze_to_silver.py` cleans text columns, removes duplicate rows, and writes Parquet datasets under `data/silver/`.
+- `silver_to_gold.py` joins the Silver datasets on `athlete_id`, filters invalid height and weight values, calculates average measurements by sport, medal and country, adds a timestamp, and writes `data/gold/avg_stats/`.
+- `project_solution.py` defines the `athlete_batch_data_lake` Airflow DAG. It runs the three Spark jobs in order with `SparkSubmitOperator`.
 - `run.sh` builds the Docker image and runs one of the supported scripts.
 - `Dockerfile` installs Java 17, the Python dependencies, and MySQL Connector/J 8.0.32.
 
@@ -40,6 +42,7 @@ Run commands from the repository directory (`goit-de-fp`):
 ```sh
 ./run.sh landing_to_bronze
 ./run.sh bronze_to_silver
+./run.sh silver_to_gold
 ./run.sh read_mysql
 ./run.sh print_json
 ```
@@ -47,6 +50,8 @@ Run commands from the repository directory (`goit-de-fp`):
 `run.sh` builds or reuses the `spark-mysql-driver:latest` image, then runs the selected script in a temporary container. For `landing_to_bronze`, the local `data/` directory is mounted into the container so downloaded CSV and Parquet output persist on your machine. `read_mysql` uses the MySQL values from `.env`.
 
 `print_json` uses the MySQL settings in `.env` to print a single `athlete_event_results` record as JSON. For Python scripts in the repository root, pass the filename with or without `.py`.
+
+The complete batch pipeline can be run locally in sequence with the first three commands above. The Airflow DAG expects the three Spark job files to be available in the Airflow DAG folder, an Airflow Spark connection named `spark-default`, and a `DATA_DIR` path visible to the Spark driver. Set `SPARK_CONN_ID` or `DATA_DIR` in the Airflow environment to override the defaults. Set `SOURCE_URL` in the Airflow task environment so the landing job can download the source CSV files.
 
 ## Create Kafka topics
 
@@ -70,20 +75,28 @@ address from `.kcat-goit.conf` unless `KAFKA_BOOTSTRAP_SERVERS` is set in
 
 ## Data layout
 
-After a successful Landing to Bronze run, the data directory will look like this:
+After a successful batch pipeline run, the data directory will look like this:
 
 ```text
 data/
 ├── landing/
 │   ├── athlete_bio.csv
 │   └── athlete_event_results.csv
-└── bronze/
-    ├── athlete_bio/
-    │   ├── part-....parquet
-    │   └── _SUCCESS
-    └── athlete_event_results/
-        ├── part-....parquet
-        └── _SUCCESS
+├── bronze/
+│   ├── athlete_bio/
+│   │   ├── part-....parquet
+│   │   └── _SUCCESS
+│   └── athlete_event_results/
+│       ├── part-....parquet
+│       └── _SUCCESS
+├── silver/
+│   ├── athlete_bio/
+│   │   └── ...
+│   └── athlete_event_results/
+│       └── ...
+└── gold/
+    └── avg_stats/
+        └── ...
 ```
 
 Spark writes each Parquet dataset as a directory containing one or more data parts and metadata files; it is not a single `.parquet` file. The `data/` directory is excluded from Git.

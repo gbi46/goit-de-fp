@@ -13,10 +13,10 @@ TABLES = ("athlete_bio", "athlete_event_results")
 
 
 def clean_text(value: str | None) -> str | None:
-    """Trim whitespace and remove control characters from a text value."""
+    """Remove unwanted punctuation and control characters from a text value."""
     if value is None:
         return None
-    return re.sub(r"[\x00-\x1f\x7f]", "", value).strip()
+    return re.sub(r"[^a-zA-Z0-9,.\\\"' ]", "", value).strip()
 
 
 clean_text_udf = udf(clean_text, StringType())
