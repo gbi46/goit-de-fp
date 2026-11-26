@@ -7,14 +7,14 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import avg, col, current_timestamp, expr
 
 
-REQUIRED_BIO_COLUMNS = {"athlete_id", "height", "weight"}
+REQUIRED_BIO_COLUMNS = {"athlete_id", "sex", "height", "weight"}
 REQUIRED_RESULT_COLUMNS = {
     "athlete_id",
     "sport",
     "medal",
     "country_noc",
 }
-GROUP_COLUMNS = ["sport", "medal", "country_noc"]
+GROUP_COLUMNS = ["sport", "medal", "sex", "country_noc"]
 
 
 def build_gold(spark: SparkSession, data_dir: Path) -> None:
@@ -49,6 +49,7 @@ def build_gold(spark: SparkSession, data_dir: Path) -> None:
     bio = (
         bio.select(
             col("athlete_id").alias("bio_athlete_id"),
+            col("sex"),
             expr("try_cast(height AS DOUBLE)").alias("height"),
             expr("try_cast(weight AS DOUBLE)").alias("weight"),
         )
@@ -60,10 +61,12 @@ def build_gold(spark: SparkSession, data_dir: Path) -> None:
     )
     results = results.select(
         col("athlete_id").alias("result_athlete_id"),
-        *[col(name) for name in GROUP_COLUMNS],
+        col("sport"),
+        col("medal"),
+        col("country_noc"),
     )
 
-    # Stage 3: join on athlete_id and aggregate by sport, medal and country.
+    # Stage 3: join on athlete_id and aggregate by sport, medal, sex and country.
     joined = bio.join(
         results,
         bio.bio_athlete_id == results.result_athlete_id,
