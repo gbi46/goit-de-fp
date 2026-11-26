@@ -6,6 +6,7 @@ This repository contains the GoIT Data Engineering final project implementation.
 
 - `read_mysql.py` reads `athlete_bio` and `athlete_event_results` from MySQL. It casts `height` and `weight` to numbers, filters invalid values from `athlete_bio`, and prints sample rows.
 - `mysql_to_kafka.py` reads `athlete_event_results` from MySQL and writes every row as a JSON message to `KAFKA_INPUT_TOPIC` (key: `athlete_id`). It uses the `KAFKA_*` SASL settings from `.env`.
+- `streaming_pipeline.py` reads `athlete_bio` from MySQL and filters invalid height and weight, streams results from `KAFKA_INPUT_TOPIC`, parses the JSON into columns, joins both on `athlete_id`, and calculates average height and weight by sport, medal, sex and country with a calculation timestamp. Every micro-batch is written with `foreachBatch` to `KAFKA_OUTPUT_TOPIC` and appended to the MySQL table `OUTPUT_MYSQL_DATABASE.OUTPUT_MYSQL_TABLE` (defaults: `neo_data.athlete_enriched_agg`). The query keeps running until you stop it with Ctrl+C; the checkpoint is stored in `data/checkpoints/streaming_pipeline/`.
 - `landing_to_bronze.py` downloads `athlete_bio.csv` and `athlete_event_results.csv` from `SOURCE_URL`, saves the original CSV files under `data/landing/`, then writes Parquet datasets under `data/bronze/`.
 - `bronze_to_silver.py` cleans text columns, removes duplicate rows, and writes Parquet datasets under `data/silver/`.
 - `silver_to_gold.py` joins the Silver datasets on `athlete_id`, filters invalid height and weight values, calculates average height and weight by sport, medal, sex and country, adds a timestamp, and writes `data/gold/avg_stats/`.
@@ -47,6 +48,7 @@ Run commands from the repository directory (`goit-de-fp`):
 ./run.sh silver_to_gold
 ./run.sh read_mysql
 ./run.sh mysql_to_kafka
+./run.sh streaming_pipeline
 ./run.sh print_json
 ```
 
