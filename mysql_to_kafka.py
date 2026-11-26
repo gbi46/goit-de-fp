@@ -13,31 +13,47 @@ REQUIRED_VARS = [
     "MYSQL_USER",
     "MYSQL_PASSWORD",
     "KAFKA_BOOTSTRAP_SERVERS",
-    "KAFKA_SASL_USERNAME",
-    "KAFKA_SASL_PASSWORD",
     "KAFKA_INPUT_TOPIC",
 ]
+SASL_VARS = ["KAFKA_SASL_USERNAME", "KAFKA_SASL_PASSWORD"]
+
+
+def uses_sasl() -> bool:
+    """The remote cluster uses SASL; the local fallback broker is PLAINTEXT."""
+    protocol = os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
+    return protocol.upper().startswith("SASL")
+
+
+def missing_vars(required: list[str]) -> list[str]:
+    names = required + (SASL_VARS if uses_sasl() else [])
+    return [name for name in names if not os.getenv(name)]
 
 
 def kafka_options() -> dict[str, str]:
-    """Spark Kafka options with PLAIN SASL authentication."""
-    username = os.environ["KAFKA_SASL_USERNAME"].replace('"', '\\"')
-    password = os.environ["KAFKA_SASL_PASSWORD"].replace('"', '\\"')
-    return {
+    """Spark Kafka options; PLAIN SASL authentication for the remote cluster."""
+    options = {
         "kafka.bootstrap.servers": os.environ["KAFKA_BOOTSTRAP_SERVERS"],
         "kafka.security.protocol": os.getenv(
             "KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT"
         ),
+    }
+    if not uses_sasl():
+        return options
+
+    username = os.environ["KAFKA_SASL_USERNAME"].replace('"', '\\"')
+    password = os.environ["KAFKA_SASL_PASSWORD"].replace('"', '\\"')
+    options.update({
         "kafka.sasl.mechanism": os.getenv("KAFKA_SASL_MECHANISM", "PLAIN"),
         "kafka.sasl.jaas.config": (
             "org.apache.kafka.common.security.plain.PlainLoginModule required "
             f'username="{username}" password="{password}";'
         ),
-    }
+    })
+    return options
 
 
 def main() -> None:
-    missing = [name for name in REQUIRED_VARS if not os.getenv(name)]
+    missing = missing_vars(REQUIRED_VARS)
     if missing:
         raise SystemExit(f"Set these variables in .env: {', '.join(missing)}")
 

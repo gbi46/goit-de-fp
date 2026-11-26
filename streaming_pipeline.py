@@ -24,7 +24,7 @@ from pyspark.sql.types import (
     StructType,
 )
 
-from mysql_to_kafka import kafka_options
+from mysql_to_kafka import kafka_options, missing_vars
 
 
 REQUIRED_VARS = [
@@ -34,8 +34,6 @@ REQUIRED_VARS = [
     "MYSQL_USER",
     "MYSQL_PASSWORD",
     "KAFKA_BOOTSTRAP_SERVERS",
-    "KAFKA_SASL_USERNAME",
-    "KAFKA_SASL_PASSWORD",
     "KAFKA_INPUT_TOPIC",
     "KAFKA_OUTPUT_TOPIC",
 ]
@@ -81,7 +79,7 @@ def jdbc_options(database: str, table: str) -> dict[str, str]:
 
 
 def main() -> None:
-    missing = [name for name in REQUIRED_VARS if not os.getenv(name)]
+    missing = missing_vars(REQUIRED_VARS)
     if missing:
         raise SystemExit(f"Set these variables in .env: {', '.join(missing)}")
 
@@ -92,7 +90,9 @@ def main() -> None:
     data_dir = Path(
         os.getenv("DATA_DIR", Path(__file__).resolve().parent / "data")
     )
-    checkpoint_dir = data_dir / "checkpoints" / "streaming_pipeline"
+    # Offsets of the remote and the local broker must not share a checkpoint.
+    kafka_target = os.getenv("KAFKA_TARGET", "remote")
+    checkpoint_dir = data_dir / "checkpoints" / f"streaming_pipeline_{kafka_target}"
 
     jars = ",".join(
         path

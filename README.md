@@ -6,7 +6,7 @@ This repository contains the GoIT Data Engineering final project implementation.
 
 - `read_mysql.py` reads `athlete_bio` and `athlete_event_results` from MySQL. It casts `height` and `weight` to numbers, filters invalid values from `athlete_bio`, and prints sample rows.
 - `mysql_to_kafka.py` reads `athlete_event_results` from MySQL and writes every row as a JSON message to `KAFKA_INPUT_TOPIC` (key: `athlete_id`). It uses the `KAFKA_*` SASL settings from `.env`.
-- `streaming_pipeline.py` reads `athlete_bio` from MySQL and filters invalid height and weight (non-numeric values and weights outside 20–250 kg), streams results from `KAFKA_INPUT_TOPIC`, parses the JSON into columns, joins both on `athlete_id`, and calculates average height and weight by sport, medal, sex and country with a calculation timestamp. Every micro-batch is written with `foreachBatch` to `KAFKA_OUTPUT_TOPIC` and appended to the MySQL table `OUTPUT_MYSQL_DATABASE.OUTPUT_MYSQL_TABLE` (defaults: `neo_data.athlete_enriched_agg`). The query keeps running until you stop it with Ctrl+C; the checkpoint is stored in `data/checkpoints/streaming_pipeline/`.
+- `streaming_pipeline.py` reads `athlete_bio` from MySQL and filters invalid height and weight (non-numeric values and weights outside 20–250 kg), streams results from `KAFKA_INPUT_TOPIC`, parses the JSON into columns, joins both on `athlete_id`, and calculates average height and weight by sport, medal, sex and country with a calculation timestamp. Every micro-batch is written with `foreachBatch` to `KAFKA_OUTPUT_TOPIC` and appended to the MySQL table `OUTPUT_MYSQL_DATABASE.OUTPUT_MYSQL_TABLE` (defaults: `neo_data.athlete_enriched_agg`). The query keeps running until you stop it with Ctrl+C; the checkpoint is stored under `data/checkpoints/`. If the remote Kafka is unreachable, both Kafka scripts fall back to a local broker (see below).
 - `landing_to_bronze.py` downloads `athlete_bio.csv` and `athlete_event_results.csv` from `SOURCE_URL`, saves the original CSV files under `data/landing/`, then writes Parquet datasets under `data/bronze/`.
 - `bronze_to_silver.py` cleans text columns, removes duplicate rows, and writes Parquet datasets under `data/silver/`.
 - `silver_to_gold.py` joins the Silver datasets on `athlete_id`, filters invalid height and weight values, calculates average height and weight by sport, medal, sex and country, adds a timestamp, and writes `data/gold/avg_stats/`.
@@ -57,6 +57,31 @@ Run commands from the repository directory (`goit-de-fp`):
 `print_json` uses the MySQL settings in `.env` to print a single `athlete_event_results` record as JSON. For Python scripts in the repository root, pass the filename with or without `.py`.
 
 The complete batch pipeline can be run locally in sequence with the first three commands above. The Airflow DAG expects the three Spark job files to be available in the Airflow DAG folder, an Airflow Spark connection named `spark-default`, and a `DATA_DIR` path visible to the Spark driver. Set `SPARK_CONN_ID` or `DATA_DIR` in the Airflow environment to override the defaults. Set `SOURCE_URL` in the Airflow task environment so the landing job can download the source CSV files.
+
+## Local Kafka fallback
+
+`mysql_to_kafka` and `streaming_pipeline` check the remote broker from `KAFKA_BOOTSTRAP_SERVERS` before they start. When it does not accept connections, `run.sh` starts a single-node Kafka in Docker (`goit-de-fp-kafka`, image `apache/kafka:4.1.2`, no authentication), creates `KAFKA_INPUT_TOPIC` and `KAFKA_OUTPUT_TOPIC` there, and runs the Spark job against it. MySQL is still the remote database from `.env`.
+
+Set `KAFKA_MODE` in `.env` or in the shell to choose the broker:
+
+- `auto` (default): remote broker if reachable, otherwise local Kafka;
+- `remote`: always the remote broker;
+- `local`: always local Kafka.
+
+The local broker keeps running between commands, so you can run the producer and then the stream:
+
+```sh
+./run.sh mysql_to_kafka
+./run.sh streaming_pipeline
+```
+
+Stop it and delete its data when you are done:
+
+```sh
+./run.sh stop_local_kafka
+```
+
+The local broker starts empty after each restart, so run `mysql_to_kafka` again first. Stream offsets are kept apart in `data/checkpoints/streaming_pipeline_local/` and `data/checkpoints/streaming_pipeline_remote/`; the local checkpoint is reset when a new local broker starts.
 
 ## Create Kafka topics
 
