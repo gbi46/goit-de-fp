@@ -2,12 +2,12 @@
 
 This repository contains the GoIT Data Engineering final project implementation. It uses PySpark for the batch data lake and includes a MySQL reader for the streaming task.
 
-## Current implementation
+## Implementation
 
 - `read_mysql.py` reads `athlete_bio` and `athlete_event_results` from MySQL. It casts `height` and `weight` to numbers, filters invalid values from `athlete_bio`, and prints sample rows.
 - `landing_to_bronze.py` downloads `athlete_bio.csv` and `athlete_event_results.csv` from `SOURCE_URL`, saves the original CSV files under `data/landing/`, then writes Parquet datasets under `data/bronze/`.
 - `bronze_to_silver.py` cleans text columns, removes duplicate rows, and writes Parquet datasets under `data/silver/`.
-- `silver_to_gold.py` joins the Silver datasets on `athlete_id`, filters invalid height and weight values, calculates average measurements by sport, medal and country, adds a timestamp, and writes `data/gold/avg_stats/`.
+- `silver_to_gold.py` joins the Silver datasets on `athlete_id`, filters invalid height and weight values, calculates average height and weight by sport, medal, sex and country, adds a timestamp, and writes `data/gold/avg_stats/`.
 - `project_solution.py` defines the `athlete_batch_data_lake` Airflow DAG. It runs the three Spark jobs in order with `SparkSubmitOperator`.
 - `run.sh` builds the Docker image and runs one of the supported scripts.
 - `Dockerfile` installs Java 17, the Python dependencies (PySpark 4.3.0), MySQL Connector/J 8.0.32, and the Spark Kafka connector jars. Their paths are in the `MYSQL_JDBC_JAR` and `KAFKA_JARS` environment variables.
@@ -16,7 +16,8 @@ This repository contains the GoIT Data Engineering final project implementation.
 
 - Docker
 - Internet access to build the image and download source CSV files
-- MySQL credentials for `read_mysql.py`
+- MySQL credentials for `read_mysql.py` and `print_json`
+- Kafka broker address and PLAIN SASL credentials in `.kcat-goit.conf` for `create_topics`
 
 ## Configuration
 
@@ -47,7 +48,7 @@ Run commands from the repository directory (`goit-de-fp`):
 ./run.sh print_json
 ```
 
-`run.sh` builds or reuses the `spark-mysql-driver:latest` image, then runs the selected script in a temporary container. For `landing_to_bronze`, the local `data/` directory is mounted into the container so downloaded CSV and Parquet output persist on your machine. `read_mysql` uses the MySQL values from `.env`.
+`run.sh` builds or reuses the `spark-mysql-driver:latest` image, then runs the selected script in a temporary container. For every Python script except `read_mysql`, the local `data/` directory is mounted into the container as `/app/data`, so CSV and Parquet output persist on your machine. All scripts receive the values from `.env`.
 
 `print_json` uses the MySQL settings in `.env` to print a single `athlete_event_results` record as JSON. For Python scripts in the repository root, pass the filename with or without `.py`.
 
