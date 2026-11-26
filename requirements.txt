@@ -1,2 +1,2 @@
-pyspark
+pyspark==4.3.0
 python-dotenv

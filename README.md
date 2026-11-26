@@ -10,7 +10,7 @@ This repository contains the GoIT Data Engineering final project implementation.
 - `silver_to_gold.py` joins the Silver datasets on `athlete_id`, filters invalid height and weight values, calculates average measurements by sport, medal and country, adds a timestamp, and writes `data/gold/avg_stats/`.
 - `project_solution.py` defines the `athlete_batch_data_lake` Airflow DAG. It runs the three Spark jobs in order with `SparkSubmitOperator`.
 - `run.sh` builds the Docker image and runs one of the supported scripts.
-- `Dockerfile` installs Java 17, the Python dependencies, and MySQL Connector/J 8.0.32.
+- `Dockerfile` installs Java 17, the Python dependencies (PySpark 4.3.0), MySQL Connector/J 8.0.32, and the Spark Kafka connector jars. Their paths are in the `MYSQL_JDBC_JAR` and `KAFKA_JARS` environment variables.
 
 ## Requirements
 
