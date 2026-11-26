@@ -7,6 +7,7 @@ This repository contains the GoIT Data Engineering final project implementation.
 - `read_mysql.py` reads `athlete_bio` and `athlete_event_results` from MySQL. It casts `height` and `weight` to numbers, filters invalid values from `athlete_bio`, and prints sample rows.
 - `mysql_to_kafka.py` reads `athlete_event_results` from MySQL and writes every row as a JSON message to `KAFKA_INPUT_TOPIC` (key: `athlete_id`). It uses the `KAFKA_*` SASL settings from `.env`.
 - `streaming_pipeline.py` reads `athlete_bio` from MySQL and filters invalid height and weight (non-numeric values and weights outside 20–250 kg), streams results from `KAFKA_INPUT_TOPIC`, parses the JSON into columns, joins both on `athlete_id`, and calculates average height and weight by sport, medal, sex and country with a calculation timestamp. Every micro-batch is written with `foreachBatch` to `KAFKA_OUTPUT_TOPIC` and appended to the MySQL table `OUTPUT_MYSQL_DATABASE.OUTPUT_MYSQL_TABLE` (defaults: `neo_data.athlete_enriched_agg`). The query keeps running until you stop it with Ctrl+C; the checkpoint is stored under `data/checkpoints/`. If the remote Kafka is unreachable, both Kafka scripts fall back to a local broker (see below).
+- `read_output_topic.py` reads `KAFKA_OUTPUT_TOPIC` and prints the newest messages as a table (number of rows as an optional argument, default 20).
 - `landing_to_bronze.py` downloads `athlete_bio.csv` and `athlete_event_results.csv` from `SOURCE_URL`, saves the original CSV files under `data/landing/`, then writes Parquet datasets under `data/bronze/`.
 - `bronze_to_silver.py` cleans text columns, removes duplicate rows, and writes Parquet datasets under `data/silver/`.
 - `silver_to_gold.py` joins the Silver datasets on `athlete_id`, filters invalid height and weight values, calculates average height and weight by sport, medal, sex and country, adds a timestamp, and writes `data/gold/avg_stats/`.
@@ -57,6 +58,34 @@ Run commands from the repository directory (`goit-de-fp`):
 `print_json` uses the MySQL settings in `.env` to print a single `athlete_event_results` record as JSON. For Python scripts in the repository root, pass the filename with or without `.py`.
 
 The complete batch pipeline can be run locally in sequence with the first three commands above. The Airflow DAG expects the three Spark job files to be available in the Airflow DAG folder, an Airflow Spark connection named `spark-default`, and a `DATA_DIR` path visible to the Spark driver. Set `SPARK_CONN_ID` or `DATA_DIR` in the Airflow environment to override the defaults. Set `SOURCE_URL` in the Airflow task environment so the landing job can download the source CSV files.
+
+## Part 1 demo (screenshots)
+
+One command runs the whole streaming task and finishes by itself:
+
+```sh
+./run.sh part1_demo
+```
+
+It works in a single terminal:
+
+1. chooses the remote Kafka, or the local fallback broker when the remote one is unreachable;
+2. runs `mysql_to_kafka`, unless the input topic already has messages;
+3. runs `streaming_pipeline` for `STREAM_RUN_SECONDS` seconds (default 300), then stops it;
+4. prints the newest messages of `KAFKA_OUTPUT_TOPIC` (`read_output_topic.py`);
+5. prints the row count and the newest rows of the MySQL output table.
+
+Take the two screenshots from steps 4 and 5 at the end of the output. Change the duration or the number of printed rows like this:
+
+```sh
+STREAM_RUN_SECONDS=600 DEMO_ROWS=30 ./run.sh part1_demo
+```
+
+The stream keeps its checkpoint, so a second run against the same broker only processes new messages. To print the output topic again without running the stream:
+
+```sh
+./run.sh read_output_topic 20
+```
 
 ## Local Kafka fallback
 

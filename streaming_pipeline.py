@@ -4,6 +4,8 @@ Writes every micro-batch to the output Kafka topic and to a MySQL table.
 """
 
 import os
+import threading
+import time
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
@@ -167,6 +169,12 @@ def main() -> None:
         avg("weight").alias("avg_weight"),
     )
 
+    # STREAM_RUN_SECONDS (used by `run.sh part1_demo`) limits the run time;
+    # without it the stream runs until it is interrupted.
+    run_seconds = int(os.getenv("STREAM_RUN_SECONDS", "0") or 0)
+    started = time.monotonic()
+    time_is_up = threading.Event()
+
     def foreach_batch_function(batch_df: DataFrame, batch_id: int) -> None:
         # Етап 5: timestamp, коли розрахунки були зроблені.
         batch_df = batch_df.withColumn(
@@ -199,6 +207,8 @@ def main() -> None:
         print(f"Batch {batch_id}: wrote {batch_df.count()} rows")
         batch_df.show(10, truncate=False)
         batch_df.unpersist()
+        if run_seconds and time.monotonic() - started >= run_seconds:
+            time_is_up.set()
 
     # Етап 6: стрим даних через forEachBatch у Kafka і MySQL.
     query = (
@@ -209,7 +219,23 @@ def main() -> None:
         .start()
     )
     try:
-        query.awaitTermination()
+        if run_seconds > 0:
+            # Stop only between micro-batches: right after a batch finished
+            # writing, or when the time is up and no new data is waiting.
+            while query.isActive and not time_is_up.wait(1):
+                status = query.status
+                if (
+                    time.monotonic() - started >= run_seconds
+                    and not status["isTriggerActive"]
+                    and not status["isDataAvailable"]
+                ):
+                    break
+            query.stop()
+            if query.exception() is not None:
+                raise RuntimeError(f"Streaming query failed: {query.exception()}")
+            print(f"Stopped the stream after {time.monotonic() - started:.0f} seconds")
+        else:
+            query.awaitTermination()
     finally:
         spark.stop()
 

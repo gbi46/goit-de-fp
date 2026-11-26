@@ -78,6 +78,19 @@ def main() -> None:
         )
         topic = os.environ["KAFKA_INPUT_TOPIC"]
 
+        # Optional (used by `run.sh part1_demo`): do not send the data twice.
+        if os.getenv("SKIP_IF_TOPIC_NOT_EMPTY") == "1":
+            existing = (
+                spark.read
+                .format("kafka")
+                .options(**kafka_options())
+                .option("subscribe", topic)
+                .load()
+            )
+            if not existing.isEmpty():
+                print(f"Kafka topic {topic} already has messages; skipping.")
+                return
+
         # Етап 3: зчитування athlete_event_results з MySQL.
         results = (
             spark.read

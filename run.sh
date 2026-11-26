@@ -5,7 +5,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 COMMAND=${1:-}
 
 if [ -z "$COMMAND" ]; then
-  echo "Usage: $0 create_topics | print_json | stop_local_kafka | <python_script[.py]> [script arguments...]" >&2
+  echo "Usage: $0 part1_demo | create_topics | print_json | stop_local_kafka | <python_script[.py]> [script arguments...]" >&2
   exit 2
 fi
 shift
@@ -202,8 +202,12 @@ LIMIT 1;
 SQL
 fi
 
-PYTHON_SCRIPT="${COMMAND%.py}.py"
-if [[ "$COMMAND" == -* || "$COMMAND" == */* || "$COMMAND" == . || "$COMMAND" == .. ||
+if [ "$COMMAND" = "part1_demo" ]; then
+  PYTHON_SCRIPT=part1_demo
+else
+  PYTHON_SCRIPT="${COMMAND%.py}.py"
+fi
+if [ "$PYTHON_SCRIPT" != part1_demo ] && [[ "$COMMAND" == -* || "$COMMAND" == */* || "$COMMAND" == . || "$COMMAND" == .. ||
       "$COMMAND" == .py || ! -f "$SCRIPT_DIR/$PYTHON_SCRIPT" ]]; then
   echo "Python script not found in $SCRIPT_DIR: $COMMAND" >&2
   exit 2
@@ -211,18 +215,19 @@ fi
 
 docker build -t spark-mysql-driver:latest "$SCRIPT_DIR"
 
-DOCKER_ARGS=(--rm --env-file "$SCRIPT_DIR/.env")
+ENV_FILE="$SCRIPT_DIR/.env"
+DOCKER_ARGS=(--rm --env-file "$ENV_FILE")
 if [ "$PYTHON_SCRIPT" != "read_mysql.py" ]; then
   DOCKER_ARGS+=(-e DATA_DIR=/app/data -v "$SCRIPT_DIR/data:/app/data")
 fi
 
-# Kafka jobs: use the remote broker, or fall back to a local one.
+# Use the remote broker, or fall back to a local one; adds docker args.
 # KAFKA_MODE=auto (default) | remote | local, from the shell or .env.
-if [ "$PYTHON_SCRIPT" = "mysql_to_kafka.py" ] || [ "$PYTHON_SCRIPT" = "streaming_pipeline.py" ]; then
-  env_file="$SCRIPT_DIR/.env"
-  kafka_mode=${KAFKA_MODE:-$(env_value KAFKA_MODE "$env_file")}
+select_kafka() {
+  local kafka_mode remote_brokers use_local
+  kafka_mode=${KAFKA_MODE:-$(env_value KAFKA_MODE "$ENV_FILE")}
   kafka_mode=${kafka_mode:-auto}
-  remote_brokers=$(env_value KAFKA_BOOTSTRAP_SERVERS "$env_file")
+  remote_brokers=$(env_value KAFKA_BOOTSTRAP_SERVERS "$ENV_FILE")
 
   case "$kafka_mode" in
     remote) use_local=0 ;;
@@ -243,8 +248,8 @@ if [ "$PYTHON_SCRIPT" = "mysql_to_kafka.py" ] || [ "$PYTHON_SCRIPT" = "streaming
 
   if [ "$use_local" -eq 1 ]; then
     start_local_kafka \
-      "$(env_value KAFKA_INPUT_TOPIC "$env_file")" \
-      "$(env_value KAFKA_OUTPUT_TOPIC "$env_file")"
+      "$(env_value KAFKA_INPUT_TOPIC "$ENV_FILE")" \
+      "$(env_value KAFKA_OUTPUT_TOPIC "$ENV_FILE")"
     DOCKER_ARGS+=(--network "$LOCAL_KAFKA_NETWORK"
       -e KAFKA_BOOTSTRAP_SERVERS="$LOCAL_KAFKA_NAME:9092"
       -e KAFKA_SECURITY_PROTOCOL=PLAINTEXT
@@ -253,6 +258,66 @@ if [ "$PYTHON_SCRIPT" = "mysql_to_kafka.py" ] || [ "$PYTHON_SCRIPT" = "streaming
     echo "Using remote Kafka $remote_brokers"
     DOCKER_ARGS+=(-e KAFKA_TARGET=remote)
   fi
+}
+
+# Print the newest rows of the streaming output table with the mysql client.
+print_output_table() {
+  local database table limit=$1
+  database=$(env_value OUTPUT_MYSQL_DATABASE "$ENV_FILE")
+  table=$(env_value OUTPUT_MYSQL_TABLE "$ENV_FILE")
+  database=${database:-neo_data}
+  table=${table:-athlete_enriched_agg}
+  if [[ ! "$database" =~ ^[A-Za-z0-9_]+$ || ! "$table" =~ ^[A-Za-z0-9_]+$ ]]; then
+    echo "OUTPUT_MYSQL_DATABASE and OUTPUT_MYSQL_TABLE may contain only letters, digits and _." >&2
+    exit 2
+  fi
+
+  docker run --rm -i --env-file "$ENV_FILE" --entrypoint sh mysql:8.0 -c '
+      export MYSQL_PWD="$MYSQL_PASSWORD"
+      exec mysql --protocol=TCP \
+        --host="$MYSQL_HOST" --port="$MYSQL_PORT" --user="$MYSQL_USER" --table
+    ' <<SQL 2> >(grep -v "Using a password" >&2)
+SELECT '$database.$table' AS output_table, COUNT(*) AS total_rows FROM \`$database\`.\`$table\`;
+SELECT * FROM \`$database\`.\`$table\` ORDER BY \`timestamp\` DESC LIMIT $limit;
+SQL
+}
+
+if [ "$PYTHON_SCRIPT" = part1_demo ]; then
+  # Part 1 end to end in one terminal: fill the input topic, run the stream
+  # for a limited time, then print the output Kafka topic and MySQL table.
+  stream_seconds=${STREAM_RUN_SECONDS:-$(env_value STREAM_RUN_SECONDS "$ENV_FILE")}
+  stream_seconds=${stream_seconds:-300}
+  show_rows=${DEMO_ROWS:-20}
+  if [[ ! "$stream_seconds" =~ ^[1-9][0-9]*$ || ! "$show_rows" =~ ^[1-9][0-9]*$ ]]; then
+    echo "STREAM_RUN_SECONDS and DEMO_ROWS must be positive integers." >&2
+    exit 2
+  fi
+
+  select_kafka
+
+  echo
+  echo "=== 1/4 MySQL -> Kafka input topic (skipped if the topic already has data)"
+  docker run "${DOCKER_ARGS[@]}" -e SKIP_IF_TOPIC_NOT_EMPTY=1 \
+    spark-mysql-driver python mysql_to_kafka.py
+
+  echo
+  echo "=== 2/4 Streaming pipeline for ${stream_seconds}s"
+  docker run "${DOCKER_ARGS[@]}" -e STREAM_RUN_SECONDS="$stream_seconds" \
+    spark-mysql-driver python streaming_pipeline.py
+
+  echo
+  echo "=== 3/4 Output Kafka topic (newest $show_rows messages)"
+  docker run "${DOCKER_ARGS[@]}" spark-mysql-driver \
+    python read_output_topic.py "$show_rows"
+
+  echo
+  echo "=== 4/4 MySQL output table (newest $show_rows rows)"
+  print_output_table "$show_rows"
+  exit 0
 fi
+
+case "$PYTHON_SCRIPT" in
+  mysql_to_kafka.py | streaming_pipeline.py | read_output_topic.py) select_kafka ;;
+esac
 
 exec docker run "${DOCKER_ARGS[@]}" spark-mysql-driver python "$PYTHON_SCRIPT" "$@"
