@@ -10,6 +10,9 @@ from pyspark.sql.types import StringType
 
 
 TABLES = ("athlete_bio", "athlete_event_results")
+# Measurements stay raw: cleaning would turn ranges like "80-82" into 8082.
+# silver_to_gold casts them with try_cast, so non-numeric values become NULL.
+SKIP_CLEAN_COLUMNS = {"height", "weight"}
 
 
 def clean_text(value: str | None) -> str | None:
@@ -31,9 +34,12 @@ def transform_table(spark: SparkSession, table: str, data_dir: Path) -> None:
         )
 
     dataframe = spark.read.parquet(str(source))
-    # Stage 2: clean every text column and remove duplicate rows.
+    # Stage 2: clean every text column except measurements and remove duplicate rows.
     for field in dataframe.schema.fields:
-        if isinstance(field.dataType, StringType):
+        if (
+            isinstance(field.dataType, StringType)
+            and field.name not in SKIP_CLEAN_COLUMNS
+        ):
             dataframe = dataframe.withColumn(field.name, clean_text_udf(col(field.name)))
 
     dataframe = dataframe.dropDuplicates()
