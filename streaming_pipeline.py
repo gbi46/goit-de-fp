@@ -57,6 +57,11 @@ RESULT_SCHEMA = StructType([
 
 GROUP_COLUMNS = ["sport", "medal", "sex", "country_noc"]
 
+# Source weights contain merged ranges ("210-218" stored as 210218).
+# Keep only physically plausible values in kilograms.
+MIN_WEIGHT_KG = 20
+MAX_WEIGHT_KG = 250
+
 
 def jdbc_url(database: str) -> str:
     return (
@@ -111,7 +116,8 @@ def main() -> None:
         .load()
     )
 
-    # Етап 2: фільтрація рядків, де зріст або вага порожні чи не є числами.
+    # Етап 2: фільтрація рядків, де зріст або вага порожні чи не є числами,
+    # а також ваги поза реальними межами.
     athlete_bio = (
         athlete_bio
         .select(
@@ -124,6 +130,7 @@ def main() -> None:
             col("athlete_id").isNotNull()
             & col("height").isNotNull()
             & col("weight").isNotNull()
+            & col("weight").between(MIN_WEIGHT_KG, MAX_WEIGHT_KG)
         )
         .cache()
     )
